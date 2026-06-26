@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maestranzas Unidos S.A. - Prototipo MVP</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Chosen Palette: Industrial Calm (Slate grays, crisp white, deep blue primary, amber/emerald accents) -->
+    <!-- Application Structure Plan: The SPA uses a classic Dashboard layout. A login screen acts as the gateway (fulfilling Section 13 requirements). Post-login, a sidebar navigation allows seamless switching between core MVP modules: Dashboard (Menú), Inventory, Alerts, Reports, Users, and a special 'Documentation' tab containing the Section 12 report text. This structure was chosen because it mirrors enterprise ERP systems, making it highly intuitive for the target users (logistics, buyers, admins). Vanilla JS handles state and view rendering to keep the single-file constraint pure. -->
+    <!-- Visualization & Content Choices: 
+         1. Inventory/Users: HTML Tables/Cards -> Goal: Organize & Compare -> Interaction: Read-only views for prototype.
+         2. Alerts: List with status -> Goal: Inform & Action -> Interaction: Visual cues for critical stock.
+         3. Reports: Chart.js Bar Chart -> Goal: Compare Stock vs Minimums -> Justification: Quickly identifies which parts are closest to causing production stops.
+         4. Documentation: Structured Text -> Goal: Inform -> Fulfills Section 12 academic requirement directly within the app.
+         NO SVG/Mermaid used. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+
+    <style>
+        /* PURIFICAR: Custom minimal scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; overflow-x: hidden; }
+        
+        /* Chart Container Constraint */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 350px;
+            max-height: 400px;
+        }
+        @media (max-width: 768px) {
+            .chart-container { height: 250px; }
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased h-screen flex flex-col overflow-hidden">
+
+    <!-- App Mount Point -->
+    <div id="app" class="w-full h-full flex flex-col"></div>
+
+    <script>
+        // --- DATA STATE (MOCK DB) ---
+        const state = {
+            view: 'login', // login, menu, inventario, alertas, reportes, usuarios, doc
+            user: null,
+            inventory: [
+                { id: 1, cod: 'MTR-001', desc: 'Motor Diesel 500HP', stock: 2, min: 1, loc: 'P1-E4' },
+                { id: 2, cod: 'FIL-042', desc: 'Filtro de Aceite Pesado', stock: 15, min: 20, loc: 'P3-E1' }, // Critical
+                { id: 3, cod: 'VAL-009', desc: 'Válvula de Presión Alta', stock: 4, min: 5, loc: 'P2-E2' }, // Critical
+                { id: 4, cod: 'LUB-110', desc: 'Lubricante Sintético 200L', stock: 8, min: 5, loc: 'P5-E1' },
+                { id: 5, cod: 'ROD-302', desc: 'Rodamiento Esférico', stock: 45, min: 30, loc: 'P1-E2' }
+            ],
+            alerts: [
+                { id: 1, mat: 'FIL-042 (Filtro Aceite)', msg: 'Stock por debajo del mínimo (15/20)', date: '25-06-2026', status: 'ACTIVA' },
+                { id: 2, mat: 'VAL-009 (Válvula Presión)', msg: 'Stock por debajo del mínimo (4/5)', date: '25-06-2026', status: 'ACTIVA' }
+            ],
+            users: [
+                { id: 1, name: 'Ilvany Zambrano', role: 'Product Owner / Admin' },
+                { id: 2, name: 'Natushka Mella', role: 'Scrum Master / Admin' },
+                { id: 3, name: 'Moisés Rodríguez', role: 'Desarrollador / Gestor' },
+                { id: 4, name: 'Mauricio Montenegro', role: 'Desarrollador / Gestor' },
+                { id: 5, name: 'Mario García', role: 'Encargado Logística' }
+            ]
+        };
+
+        // --- NAVIGATION LOGIC ---
+        function navigate(targetView) {
+            state.view = targetView;
+            render();
+        }
+
+        function login() {
+            state.user = { name: 'Admin Maestranza', role: 'Administrador' };
+            navigate('menu');
+        }
+
+        function logout() {
+            state.user = null;
+            navigate('login');
+        }
+
+        // --- RENDER FUNCTIONS ---
+        function render() {
+            const app = document.getElementById('app');
+            if (state.view === 'login') {
+                app.innerHTML = getLoginHTML();
+            } else {
+                app.innerHTML = getLayoutHTML(getContentHTML());
+                if (state.view === 'reportes') renderChart();
+            }
+        }
+
+        // 1. LOGIN SCREEN
+        function getLoginHTML() {
+            return `
+                <div class="flex-1 flex items-center justify-center bg-slate-100 p-4">
+                    <div class="bg-white p-8 rounded-xl shadow-lg max-w-sm w-full border border-slate-200">
+                        <div class="text-center mb-8">
+                            <div class="text-4xl mb-2">⚙️</div>
+                            <h1 class="text-2xl font-bold text-slate-800">Maestranzas Unidos</h1>
+                            <p class="text-sm text-slate-500">Sistema de Control de Inventarios</p>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Usuario</label>
+                                <input type="text" value="admin" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" readonly>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
+                                <input type="password" value="123456" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" readonly>
+                            </div>
+                            <button onclick="login()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors duration-200 mt-4">
+                                Ingresar al Sistema
+                            </button>
+                            <p class="text-xs text-center text-slate-400 mt-4">Prototipo MVP</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // APP LAYOUT (Sidebar + Header + Content)
+        function getLayoutHTML(content) {
+            const navItems = [
+                { id: 'menu', icon: '📊', label: 'Menú Principal' },
+                { id: 'inventario', icon: '📦', label: 'Inventario' },
+                { id: 'alertas', icon: '⚠️', label: 'Alertas Stock' },
+                { id: 'reportes', icon: '📈', label: 'Reportes' },
+                { id: 'usuarios', icon: '👥', label: 'Usuarios' },
+                { id: 'doc', icon: '📄', label: 'Informe' }
+            ];
+
+            let navLinks = navItems.map(item => `
+                <button onclick="navigate('${item.id}')" class="w-full flex items-center space-x-3 px-4 py-3 rounded-lg mb-1 transition-colors ${state.view === item.id ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}">
+                    <span class="text-xl">${item.icon}</span>
+                    <span>${item.label}</span>
+                </button>
+            `).join('');
+
+            return `
+                <div class="flex h-screen bg-slate-50 w-full overflow-hidden">
+                    <!-- Sidebar (Desktop) -->
+                    <div class="hidden md:flex flex-col w-64 bg-white border-r border-slate-200 h-full shadow-sm">
+                        <div class="p-6 border-b border-slate-200 flex items-center space-x-2">
+                            <span class="text-2xl">⚙️</span>
+                            <h2 class="text-lg font-bold text-slate-800 leading-tight">Maestranzas<br>Unidos</h2>
+                        </div>
+                        <div class="flex-1 overflow-y-auto p-4">
+                            ${navLinks}
+                        </div>
+                        <div class="p-4 border-t border-slate-200">
+                            <div class="text-sm font-medium text-slate-800">${state.user.name}</div>
+                            <div class="text-xs text-slate-500 mb-3">${state.user.role}</div>
+                            <button onclick="logout()" class="flex items-center space-x-2 text-sm text-red-600 hover:text-red-800 transition-colors w-full">
+                                <span>🚪</span> <span>Cerrar Sesión</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Main Content Area -->
+                    <div class="flex-1 flex flex-col h-full overflow-hidden">
+                        <!-- Mobile Header -->
+                        <div class="md:hidden bg-white border-b border-slate-200 p-4 flex justify-between items-center shadow-sm">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xl">⚙️</span>
+                                <span class="font-bold">MU App</span>
+                            </div>
+                            <button onclick="logout()" class="text-red-600">🚪 Salir</button>
+                        </div>
+                        
+                        <!-- Dynamic Content (Scrollable) -->
+                        <div class="flex-1 overflow-y-auto p-4 md:p-8">
+                            <div class="max-w-6xl mx-auto">
+                                ${content}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // CONTENT ROUTER
+        function getContentHTML() {
+            switch(state.view) {
+                case 'menu': return renderDashboard();
+                case 'inventario': return renderInventory();
+                case 'alertas': return renderAlerts();
+                case 'reportes': return renderReports();
+                case 'usuarios': return renderUsers();
+                case 'doc': return renderDocumentation();
+                default: return renderDashboard();
+            }
+        }
+
+        // 2. DASHBOARD / MENU
+        function renderDashboard() {
+            const criticalCount = state.inventory.filter(i => i.stock <= i.min).length;
+            
+            return `
+                <div class="animate-fade-in">
+                    <h2 class="text-2xl font-bold text-slate-800 mb-2">Resumen de Operaciones</h2>
+                    <p class="text-slate-600 mb-8">Bienvenido al panel centralizado del Producto Mínimo Viable.</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                        <!-- Widget 1 -->
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200 flex items-center space-x-4">
+                            <div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-2xl">📦</div>
+                            <div>
+                                <div class="text-sm text-slate-500 font-medium">Items en Bodega</div>
+                                <div class="text-2xl font-bold text-slate-800">${state.inventory.length} Registrados</div>
+                            </div>
+                        </div>
+                        <!-- Widget 2 -->
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200 flex items-center space-x-4">
+                            <div class="w-12 h-12 ${criticalCount > 0 ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'} rounded-full flex items-center justify-center text-2xl">⚠️</div>
+                            <div>
+                                <div class="text-sm text-slate-500 font-medium">Alertas Críticas</div>
+                                <div class="text-2xl font-bold text-slate-800">${criticalCount} Activas</div>
+                            </div>
+                        </div>
+                        <!-- Widget 3 -->
+                        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200 flex items-center space-x-4">
+                            <div class="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center text-2xl">📋</div>
+                            <div>
+                                <div class="text-sm text-slate-500 font-medium">Auditorías</div>
+                                <div class="text-2xl font-bold text-slate-800">1 Pendiente</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4">Accesos Rápidos</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <button onclick="navigate('inventario')" class="p-4 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-blue-300 transition-all text-center">
+                                <div class="text-3xl mb-2">📥</div>
+                                <div class="text-sm font-medium">Registrar Recepción</div>
+                            </button>
+                            <button onclick="navigate('inventario')" class="p-4 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-blue-300 transition-all text-center">
+                                <div class="text-3xl mb-2">🔄</div>
+                                <div class="text-sm font-medium">Ajuste Manual</div>
+                            </button>
+                             <button onclick="navigate('alertas')" class="p-4 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-blue-300 transition-all text-center">
+                                <div class="text-3xl mb-2">📨</div>
+                                <div class="text-sm font-medium">Consolidar Compras</div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 3. INVENTORY
+        function renderInventory() {
+            let rows = state.inventory.map(item => {
+                const isCritical = item.stock <= item.min;
+                return `
+                <tr class="border-b border-slate-100 hover:bg-slate-50">
+                    <td class="px-4 py-3 font-medium text-slate-800">${item.cod}</td>
+                    <td class="px-4 py-3 text-slate-600">${item.desc}</td>
+                    <td class="px-4 py-3 text-slate-600">${item.loc}</td>
+                    <td class="px-4 py-3">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${isCritical ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">
+                            ${item.stock} / Min: ${item.min}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                        <button class="text-blue-600 hover:text-blue-800 text-sm font-medium mr-3">Ajustar</button>
+                    </td>
+                </tr>
+            `}).join('');
+
+            return `
+                <div>
+                    <div class="flex justify-between items-center mb-6">
+                        <div>
+                            <h2 class="text-2xl font-bold text-slate-800">Inventario Físico</h2>
+                            <p class="text-slate-600 text-sm">Control de stock en tiempo real y trazabilidad.</p>
+                        </div>
+                        <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm flex items-center space-x-2">
+                            <span>➕</span> <span>Nueva Recepción</span>
+                        </button>
+                    </div>
+                    
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm whitespace-nowrap">
+                                <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+                                    <tr>
+                                        <th class="px-4 py-3 font-semibold">Código</th>
+                                        <th class="px-4 py-3 font-semibold">Descripción</th>
+                                        <th class="px-4 py-3 font-semibold">Ubicación</th>
+                                        <th class="px-4 py-3 font-semibold">Stock / Mínimo</th>
+                                        <th class="px-4 py-3 font-semibold text-right">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 4. ALERTS
+        function renderAlerts() {
+            let cards = state.alerts.map(alert => `
+                <div class="bg-white border-l-4 border-amber-500 rounded-r-xl shadow-sm p-5 mb-4 flex justify-between items-center">
+                    <div>
+                        <div class="flex items-center space-x-2 mb-1">
+                            <span class="bg-amber-100 text-amber-800 text-xs font-bold px-2 py-0.5 rounded uppercase">${alert.status}</span>
+                            <span class="text-xs text-slate-400">${alert.date}</span>
+                        </div>
+                        <h4 class="font-bold text-slate-800">${alert.mat}</h4>
+                        <p class="text-sm text-slate-600">${alert.msg}</p>
+                    </div>
+                    <button class="text-blue-600 hover:text-blue-800 text-sm font-medium bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                        Procesar a Compras
+                    </button>
+                </div>
+            `).join('');
+
+            return `
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-800 mb-2">Alertas de Stock</h2>
+                    <p class="text-slate-600 mb-6 text-sm">Notificaciones generadas automáticamente por los triggers del sistema.</p>
+                    <div class="max-w-3xl">
+                        ${cards || '<p class="text-slate-500 italic">No hay alertas activas en este momento.</p>'}
+                    </div>
+                </div>
+            `;
+        }
+
+        // 5. REPORTS (Chart.js)
+        function renderReports() {
+            return `
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-800 mb-2">Reportes y Auditoría</h2>
+                    <p class="text-slate-600 mb-6 text-sm">Visualización gráfica del estado actual del almacén.</p>
+                    
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4 text-center">Niveles de Stock vs Umbral Mínimo</h3>
+                        <!-- CONTENEDOR RESTRINGIDO PURIFICADO -->
+                        <div class="chart-container">
+                            <canvas id="inventoryChart"></canvas>
+                        </div>
+                        <p class="text-center text-xs text-slate-400 mt-4">Gráfico renderizado dinámicamente con Chart.js basado en datos en memoria.</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderChart() {
+            const ctx = document.getElementById('inventoryChart').getContext('2d');
+            const labels = state.inventory.map(i => i.cod);
+            const dataStock = state.inventory.map(i => i.stock);
+            const dataMin = state.inventory.map(i => i.min);
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Stock Actual',
+                            data: dataStock,
+                            backgroundColor: '#3b82f6', // blue-500
+                            borderRadius: 4
+                        },
+                        {
+                            label: 'Umbral Mínimo',
+                            data: dataMin,
+                            backgroundColor: '#cbd5e1', // slate-300
+                            type: 'line',
+                            borderColor: '#94a3b8',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointBackgroundColor: '#fff',
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false, // Fundamental para que el contenedor CSS controle la altura
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        // 6. USERS
+        function renderUsers() {
+             let rows = state.users.map(u => `
+                <tr class="border-b border-slate-100">
+                    <td class="px-4 py-3 font-medium text-slate-800">${u.name}</td>
+                    <td class="px-4 py-3 text-slate-600"><span class="bg-slate-100 text-slate-700 px-2 py-1 rounded text-xs">${u.role}</span></td>
+                    <td class="px-4 py-3 text-right">
+                        <button class="text-blue-600 hover:text-blue-800 text-sm font-medium">Editar Rol</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            return `
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-800 mb-2">Gestión de Usuarios</h2>
+                    <p class="text-slate-600 mb-6 text-sm">Administración centralizada de accesos y roles (HU-01).</p>
+                    
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden max-w-4xl">
+                         <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+                                <tr>
+                                    <th class="px-4 py-3 font-semibold">Nombre</th>
+                                    <th class="px-4 py-3 font-semibold">Rol Asignado</th>
+                                    <th class="px-4 py-3 font-semibold text-right">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 7. DOCUMENTATION (Section 12 of the Report)
+        function renderDocumentation() {
+            return `
+                <div class="max-w-4xl bg-white p-8 rounded-xl shadow-sm border border-slate-200">
+                    <h1 class="text-3xl font-bold text-blue-900 border-b-2 border-blue-100 pb-4 mb-6">12. Desarrollo del Sistema</h1>
+                    
+                    <p class="text-slate-600 mb-8 leading-relaxed">
+                        Este módulo contiene la redacción técnica requerida para la Evaluación Parcial 4. Puedes copiar este contenido directamente a tu informe.
+                    </p>
+
+                    <h2 class="text-xl font-bold text-slate-800 mt-8 mb-4 flex items-center"><span class="mr-2">🏗️</span> Arquitectura</h2>
+                    <p class="text-slate-700 mb-4 leading-relaxed text-justify">
+                        El Sistema de Control de Inventarios para Maestranzas Unidos S.A. ha sido diseñado bajo una <strong>Arquitectura Cliente-Servidor</strong> moderna, separando de forma estricta la capa de presentación (Frontend) de la lógica de negocio y acceso a datos (Backend). Se aplicó el concepto interno de diseño "PURIFICAR", el cual prioriza la limpieza del código, el uso de inyección de dependencias estructurada y la encapsulación de las reglas de negocio estrictamente dentro de la capa de Servicios, evitando lógicas pesadas en los Controladores. El frontend se comunica con el backend exclusivamente mediante una <strong>API RESTful</strong>.
+                    </p>
+
+                    <h2 class="text-xl font-bold text-slate-800 mt-8 mb-4 flex items-center"><span class="mr-2">💻</span> Tecnologías</h2>
+                    <ul class="space-y-3 text-slate-700 ml-2">
+                        <li class="flex items-start">
+                            <span class="text-blue-500 mr-2">▪</span> 
+                            <div><strong>Backend:</strong> Desarrollado íntegramente en <strong>Java 21</strong> (LTS) utilizando el framework <strong>Spring Boot 3.x</strong>. Esto permite un rendimiento excepcional gracias a los Virtual Threads.</div>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-blue-500 mr-2">▪</span> 
+                            <div><strong>Persistencia:</strong> Implementada con <strong>Spring Data JPA</strong> e <strong>Hibernate</strong> como ORM, permitiendo la generación automática del modelo relacional. Se incorporó <strong>Lombok</strong> para reducir el código *boilerplate*.</div>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-blue-500 mr-2">▪</span> 
+                            <div><strong>Base de Datos:</strong> Se optó por el motor relacional <strong>MySQL 8+</strong>, asegurando integridad transaccional (ACID) y confiabilidad en los logs de ajuste y control físico.</div>
+                        </li>
+                        <li class="flex items-start">
+                            <span class="text-blue-500 mr-2">▪</span> 
+                            <div><strong>Frontend (Prototipo):</strong> Estructurado como una Single Page Application (SPA) utilizando <strong>HTML5, Vanilla JS y Tailwind CSS</strong> para garantizar un diseño 100% responsivo adaptable a dispositivos móviles en bodega. Se integró <strong>Chart.js</strong> para la renderización de reportes visuales en tiempo real.</div>
+                        </li>
+                    </ul>
+
+                    <h2 class="text-xl font-bold text-slate-800 mt-8 mb-4 flex items-center"><span class="mr-2">🗄️</span> Base de Datos</h2>
+                    <p class="text-slate-700 mb-4 leading-relaxed text-justify">
+                        El modelo Entidad-Relación fue diseñado para soportar las Historias de Usuario del MVP. Consta de 6 tablas principales interconectadas:
+                    </p>
+                    <ul class="list-disc list-inside space-y-2 text-slate-700 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-100">
+                        <li><strong>USUARIOS:</strong> Gestiona la autenticación y los roles (HU-01).</li>
+                        <li><strong>MATERIALES:</strong> Entidad central. Almacena ubicaciones (pasillo/estante) y umbrales (HU-04, HU-22).</li>
+                        <li><strong>HISTORIAL_AJUSTES:</strong> Bitácora transaccional para auditoría, exige justificación (HU-05, HU-32).</li>
+                        <li><strong>ALERTAS_STOCK:</strong> Consolida notificaciones cuando un material llega al mínimo (HU-23).</li>
+                        <li><strong>INVENTARIOS_FISICOS y DETALLES:</strong> Cabecera y líneas para reportes comparativos de auditoría logística (HU-12).</li>
+                    </ul>
+
+                    <h2 class="text-xl font-bold text-slate-800 mt-8 mb-4 flex items-center"><span class="mr-2">📱</span> Pantallas del Prototipo</h2>
+                    <p class="text-slate-700 leading-relaxed text-justify">
+                        Para la Sección 13 del informe, el sistema cuenta con las siguientes interfaces interactivas funcionales: <strong>Login</strong> (Puerta de acceso), <strong>Menú Principal</strong> (Dashboard con KPIs), <strong>Inventario</strong> (Tabla de control físico), <strong>Alertas</strong> (Notificaciones críticas para compras), <strong>Reportes</strong> (Gráfico interactivo de stock) y <strong>Gestión de Usuarios</strong> (Panel de administración).
+                    </p>
+                </div>
+            `;
+        }
+
+        // --- INITIALIZATION ---
+        window.onload = () => {
+            render();
+        };
+    </script>
+</body>
+</html>
